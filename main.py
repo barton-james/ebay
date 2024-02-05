@@ -1,5 +1,6 @@
-import requests
 import json
+import os
+import requests
 from urllib import parse
 import base64
 import configparser
@@ -27,19 +28,20 @@ def get_auth_token():
     return auth_response.json()['access_token']
 
 
-def get_data(auth_token, params, filters):
+def get_data(auth_token, params, filters, item):
     # Construct the data to send in the request then get the data and return it
     header = construct_header(auth_token, params['market_place'])
-    params.pop('market_place')
     search_str = 'https://api.ebay.com/buy/browse/v1/item_summary/search'
 
-    search_str += '?'
+    search_str += f'?q={item}'
     for key, value in params.items():
+        if (key=='market_place'):
+            continue
         #print(f'key:{key} , value:{value}')
-        search_str+=f'{key}={value}&'
+        search_str += f'&{key}={value}'
     #print(search_str)
 
-    search_str += 'filter='
+    search_str += '&filter='
     for value in filters.values():
         #print(f'value:{value}')
         search_str += f'{value},'
@@ -82,24 +84,80 @@ def loop_and_get_data(url_value, header_value):
 
 
 def prune_data(list_of_dict, refinements, columns):
-    # Filter the returned list based on config requirements and output the final data to csv file
+    # Filter the returned list based on config requirements and return it
     filtered_list = [each_dict for each_dict in list_of_dict if 'shippingOptions' in each_dict]
 
     df = pd.json_normalize(filtered_list)
-    filtered_df = df.loc[:,df.columns.isin(columns)]
+    filtered_df = df.loc[:, df.columns.isin(columns)]
     filtered_df = filtered_df[filtered_df['seller.feedbackScore'] < int(refinements['max_feedback_score'])]
     filtered_df = filtered_df[filtered_df['seller.feedbackScore'] > int(refinements['min_feedback_score'])]
-    filtered_df = filtered_df[filtered_df['seller.feedbackPercentage'].astype(str).astype(float) > float(refinements['min_feedback_percentage'])]
-    filtered_df.info()
-    filtered_df.to_csv('data.csv', index=False)
+    filtered_df = filtered_df[filtered_df['seller.feedbackPercentage'].astype(str).astype(float) >
+                              float(refinements['min_feedback_percentage'])]
+    filtered_df['legacyItemId'] = filtered_df['legacyItemId'].astype(int)
+    filtered_df['price.value'] = filtered_df['price.value'].astype(float)
+    filtered_df['seller.feedbackPercentage'] = filtered_df['seller.feedbackPercentage'].astype(float)
+    filtered_df['shippingPrice'] = filtered_df['shippingOptions'].astype(str).str.split('\'').str[9]
+    filtered_df.drop(columns=['shippingOptions'], inplace=True)
+    filtered_df['totalPrice'] = filtered_df['shippingPrice'].astype(float)+filtered_df['price.value'].astype(float)
+
+    print(f'Filtered items: {len(filtered_df)}')
+    #filtered_df.info()
+    return filtered_df
+
+
+def output_results(latest_data_df, item_name):
+    filename_latest = f'output/{item_name}.csv'
+    filename_previous = f'output/{item_name}_previous.csv'
+    filename_completed = f'output/{item_name}_completed.csv'
+    filename_ongoing = f'output/{item_name}_ongoing.csv'
+    filename_diff = f'output/{item_name}_diff.csv'
+
+    if os.path.exists(filename_latest):
+        os.rename(filename_latest, filename_previous)
+        previous_data_df = pd.read_csv(filename_previous)
+        #previous_data_df.info()
+
+        latest_data_df.to_csv(filename_latest)
+        comparison_df = pd.merge(latest_data_df, previous_data_df, indicator='Status', on=['legacyItemId',
+                                                                                           'itemWebUrl'],
+                                 how='outer', suffixes=('', '_y'))
+        comparison_df.drop(comparison_df.filter(regex='_y$').columns, axis=1, inplace=True)
+        comparison_df['Status'] = comparison_df['Status'].map({'both': 'ongoing', 'left_only': 'new',
+                                                               'right_only': 'complete'})
+
+        comparison_df.sort_values(by='Status', inplace=True)
+        comparison_df.to_csv(filename_diff)
+
+        completed_df = comparison_df.loc[comparison_df['Status'] == 'complete']
+        completed_df.to_csv(filename_completed)
+        ongoing_df = comparison_df.loc[comparison_df['Status'] != 'complete']
+        ongoing_df.to_csv(filename_ongoing)
+
+    latest_data_df.to_csv(filename_latest)
+    print(f'Output files created')
+    return
 
 
 if __name__ == '__main__':
+    # Read the configuration
     config = configparser.RawConfigParser(allow_no_value=True)
     config.optionxform = lambda option: option
     config.read('config.ini')
 
+    # Get the auth token to use for data retrieval
     token = get_auth_token()
 
-    item_dictionary = get_data(token, config['default params'], config['default filters'])
-    prune_data(item_dictionary['itemSummaries'], config['default refinements'], list(config['default columns'].keys()))
+    # Make successive calls for each query we want to run
+    search_item = config['google pixel 8 pro 256gb']['q']
+    print(f'\nRunning for {search_item}')
+    item_dictionary = get_data(token, config['default params'], config['default filters'], search_item)
+    pruned_data_df = prune_data(item_dictionary['itemSummaries'], config['default refinements'],
+                                list(config['default columns'].keys()))
+    output_results(pruned_data_df, search_item)
+
+    search_item = config['google pixel 8 pro 512gb']['q']
+    print(f'\nRunning for {search_item}')
+    item_dictionary = get_data(token, config['default params'], config['default filters'], search_item)
+    pruned_data_df = prune_data(item_dictionary['itemSummaries'], config['default refinements'],
+                                list(config['default columns'].keys()))
+    output_results(pruned_data_df, search_item)
