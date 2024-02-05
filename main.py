@@ -1,4 +1,3 @@
-import json
 import os
 import requests
 from urllib import parse
@@ -35,17 +34,17 @@ def get_data(auth_token, params, filters, item):
 
     search_str += f'?q={item}'
     for key, value in params.items():
-        if (key=='market_place'):
+        if key == 'market_place':
             continue
-        #print(f'key:{key} , value:{value}')
+        # print(f'key:{key} , value:{value}')
         search_str += f'&{key}={value}'
-    #print(search_str)
+    # print(search_str)
 
     search_str += '&filter='
     for value in filters.values():
-        #print(f'value:{value}')
+        # print(f'value:{value}')
         search_str += f'{value},'
-    #print(search_str)
+    # print(search_str)
 
     returned_dict = loop_and_get_data(search_str, header)
     return returned_dict
@@ -64,8 +63,8 @@ def make_request(url_string, header_string):
     print(f'Query string: {url_string}')
     r = requests.get(url_string, headers=header_string)
     print(f'Query response: {r.status_code}')
-    r_dict = r.json() # This function parses the content as JSON and returns a dictionary
-    #print(json.r_json(items, indent=4))
+    r_dict = r.json()  # This function parses the content as JSON and returns a dictionary
+    # print(json.r_json(items, indent=4))
     return r_dict
 
 
@@ -75,11 +74,9 @@ def loop_and_get_data(url_value, header_value):
     items_dict = response_dict
 
     while "next" in response_dict:
-        next_query = response_dict['next']
-        items = make_request(next_query, header_value)
         items_dict['itemSummaries'].extend(response_dict['itemSummaries'])
     print(f'Count of items returned: {len(items_dict['itemSummaries'])}')
-    #print(json.dumps(items_dict, indent=4))
+    # print(json.dumps(items_dict, indent=4))
     return items_dict
 
 
@@ -101,7 +98,7 @@ def prune_data(list_of_dict, refinements, columns):
     filtered_df['totalPrice'] = filtered_df['shippingPrice'].astype(float)+filtered_df['price.value'].astype(float)
 
     print(f'Filtered items: {len(filtered_df)}')
-    #filtered_df.info()
+    # filtered_df.info()
     return filtered_df
 
 
@@ -115,7 +112,7 @@ def output_results(latest_data_df, item_name):
     if os.path.exists(filename_latest):
         os.rename(filename_latest, filename_previous)
         previous_data_df = pd.read_csv(filename_previous)
-        #previous_data_df.info()
+        # previous_data_df.info()
 
         latest_data_df.to_csv(filename_latest)
         comparison_df = pd.merge(latest_data_df, previous_data_df, indicator='Status', on=['legacyItemId',
