@@ -27,6 +27,23 @@ def get_auth_token():
     return auth_response.json()['access_token']
 
 
+def open_output_files():
+    f_list = []
+    output_dir = f'output'
+    f_list.append(open(f'{output_dir}/all_status.csv', "w"))
+    f_list.append(open(f'{output_dir}/all_completed.csv', "w"))
+    f_list.append(open(f'{output_dir}/all_ongoing.csv', "w"))
+
+    print('Output files opened')
+    return f_list
+
+
+def close_output_files(output_fs):
+    for f in output_fs:
+        f.close()
+    print('\nOutput files closed')
+
+
 def get_data(auth_token, params, filters, item):
     # Construct the data to send in the request then get the data and return it
     header = construct_header(auth_token, params['market_place'])
@@ -80,7 +97,7 @@ def loop_and_get_data(url_value, header_value):
     return items_dict
 
 
-def prune_data(list_of_dict, refinements, columns):
+def prune_data(list_of_dict, refinements, columns, item_type):
     # Filter the returned list based on config requirements and return it
     filtered_list = [each_dict for each_dict in list_of_dict if 'shippingOptions' in each_dict]
 
@@ -97,24 +114,26 @@ def prune_data(list_of_dict, refinements, columns):
     filtered_df.drop(columns=['shippingOptions'], inplace=True)
     filtered_df['totalPrice'] = filtered_df['shippingPrice'].astype(float)+filtered_df['price.value'].astype(float)
 
-    print(f'Filtered items: {len(filtered_df)}')
+    filtered_df['itemType'] = item_type
+
+    print(f'Number of filtered items: {len(filtered_df)}')
     # filtered_df.info()
     return filtered_df
 
 
-def output_results(latest_data_df, item_name):
-    filename_latest = f'output/{item_name}.csv'
-    filename_previous = f'output/{item_name}_previous.csv'
-    filename_completed = f'output/{item_name}_completed.csv'
-    filename_ongoing = f'output/{item_name}_ongoing.csv'
-    filename_diff = f'output/{item_name}_diff.csv'
+def output_results(latest_data_df, item_name, output_file_list):
+    output_dir = f'output'
+    filename_latest = f'{output_dir}/{item_name}.csv'
+    filename_previous = f'{output_dir}/{item_name}_previous.csv'
+    filename_completed = f'{output_dir}/{item_name}_completed.csv'
+    filename_ongoing = f'{output_dir}/{item_name}_ongoing.csv'
+    filename_status = f'{output_dir}/{item_name}_status.csv'
 
     if os.path.exists(filename_latest):
         os.rename(filename_latest, filename_previous)
         previous_data_df = pd.read_csv(filename_previous)
         # previous_data_df.info()
 
-        latest_data_df.to_csv(filename_latest)
         comparison_df = pd.merge(latest_data_df, previous_data_df, indicator='Status', on=['legacyItemId',
                                                                                            'itemWebUrl'],
                                  how='outer', suffixes=('', '_y'))
@@ -123,15 +142,19 @@ def output_results(latest_data_df, item_name):
                                                                'right_only': 'complete'})
 
         comparison_df.sort_values(by='Status', inplace=True)
-        comparison_df.to_csv(filename_diff)
+        comparison_df.to_csv(filename_status, index=False)
+        comparison_df.to_csv(output_file_list[0], index=False, mode='a', header=False)
 
         completed_df = comparison_df.loc[comparison_df['Status'] == 'complete']
-        completed_df.to_csv(filename_completed)
+        completed_df.to_csv(filename_completed, index=False)
+        completed_df.to_csv(output_file_list[1], index=False, mode='a', header=False)
         ongoing_df = comparison_df.loc[comparison_df['Status'] != 'complete']
-        ongoing_df.to_csv(filename_ongoing)
+        ongoing_df.to_csv(filename_ongoing, index=False)
+        ongoing_df.to_csv(output_file_list[2], index=False, mode='a', header=False)
 
-    latest_data_df.to_csv(filename_latest)
-    print(f'Output files created')
+    latest_data_df.to_csv(filename_latest, index=False)
+
+    print(f'Output files written')
     return
 
 
@@ -144,17 +167,30 @@ if __name__ == '__main__':
     # Get the auth token to use for data retrieval
     token = get_auth_token()
 
+    # Open the generic output files
+    output_files = open_output_files()
+
     # Make successive calls for each query we want to run
     search_item = config['google pixel 8 pro 256gb']['q']
     print(f'\nRunning for {search_item}')
     item_dictionary = get_data(token, config['default params'], config['default filters'], search_item)
     pruned_data_df = prune_data(item_dictionary['itemSummaries'], config['default refinements'],
-                                list(config['default columns'].keys()))
-    output_results(pruned_data_df, search_item)
+                                list(config['default columns'].keys()), search_item)
+    output_results(pruned_data_df, search_item, output_files)
 
     search_item = config['google pixel 8 pro 512gb']['q']
     print(f'\nRunning for {search_item}')
     item_dictionary = get_data(token, config['default params'], config['default filters'], search_item)
     pruned_data_df = prune_data(item_dictionary['itemSummaries'], config['default refinements'],
-                                list(config['default columns'].keys()))
-    output_results(pruned_data_df, search_item)
+                                list(config['default columns'].keys()), search_item)
+    output_results(pruned_data_df, search_item, output_files)
+
+    search_item = config['apple iphone 14 plus 256gb']['q']
+    print(f'\nRunning for {search_item}')
+    item_dictionary = get_data(token, config['default params'], config['default filters'], search_item)
+    pruned_data_df = prune_data(item_dictionary['itemSummaries'], config['default refinements'],
+                                list(config['default columns'].keys()), search_item)
+    output_results(pruned_data_df, search_item, output_files)
+
+    # Close output files
+    close_output_files(output_files)
