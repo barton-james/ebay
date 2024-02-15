@@ -44,6 +44,7 @@ def open_output_files():
     oof_f_list.append(open(f'{oof_output_dir}/all_status.csv', "w"))
     oof_f_list.append(open(f'{oof_output_dir}/all_completed.csv', "w"))
     oof_f_list.append(open(f'{oof_output_dir}/all_ongoing.csv', "w"))
+    oof_f_list.append(open(f'{oof_output_dir}/all_new.csv', "w"))
 
     print('Output files opened')
     return oof_f_list
@@ -147,18 +148,26 @@ def prune_data(pd_list_of_dict, pd_refinements, pf_columns, pd_item_type):
 
     # Assign types to remaining untyped fields so that data is easier to merge later
     pd_filtered_df['legacyItemId'] = pd_filtered_df['legacyItemId'].astype(int)
-    pd_filtered_df['price.value'] = pd_filtered_df['price.value'].astype(float)
     pd_filtered_df['seller.feedbackPercentage'] = pd_filtered_df['seller.feedbackPercentage'].astype(float)
 
-    # Parse the shipping price string to extract the price into a new column then drop the full shipping price column
-    pd_filtered_df['shippingPrice'] = pd_filtered_df['shippingOptions'].astype(str).str.split('\'').str[9]
+    # Parse the shipping price string to extract the price into a new column
+    if 'shippingPrice' in pd_filtered_df.columns:
+        pd_filtered_df['shippingPrice'] = pd_filtered_df['shippingOptions'].astype(str).str.split('\'').str[9]
+    else:
+        pd_filtered_df['shippingPrice'] = 0
+    # Drop the shipping options column
     pd_filtered_df.drop(columns=['shippingOptions'], inplace=True)
 
-    # Set the total price as assigned value plus shipping price
-    pd_filtered_df['totalPrice'] = pd_filtered_df['shippingPrice'].astype(float) + pd_filtered_df['price.value'].astype(
-        float)
+    # If a price exists then sum this with the shipping as a total price
+    if 'price.value' in pd_filtered_df.columns:
+        pd_filtered_df['price.value'] = pd_filtered_df['price.value'].astype(float)
+        pd_filtered_df['totalPrice'] = (pd_filtered_df['shippingPrice'].astype(float) +
+                                        pd_filtered_df['price.value'].astype(float))
+    else:
+        pd_filtered_df['shippingPrice'] = 0
+        pd_filtered_df['totalPrice'] = 0
 
-    # Add a new field which record the product searched for then sort the columns for consistency in merging later on
+    # Add a new field which records the product searched for then sort the columns for consistency in merging later on
     pd_filtered_df['itemType'] = pd_item_type
     pd_filtered_df = pd_filtered_df.reindex(sorted(pd_filtered_df.columns), axis=1)
 
@@ -174,6 +183,7 @@ def output_results(or_latest_data_df, or_item_name, or_output_file_list):
     or_filename_previous = f'{or_output_dir}/{or_item_name}_previous.csv'
     or_filename_completed = f'{or_output_dir}/{or_item_name}_completed.csv'
     or_filename_ongoing = f'{or_output_dir}/{or_item_name}_ongoing.csv'
+    or_filename_new = f'{or_output_dir}/{or_item_name}_new.csv'
     or_filename_status = f'{or_output_dir}/{or_item_name}_status.csv'
 
     # If we have a previous dataset then we can use this to extract any new or changed records
@@ -181,7 +191,6 @@ def output_results(or_latest_data_df, or_item_name, or_output_file_list):
         # Rename the last data as previous data and read it in to a dataframe
         os.rename(or_filename_latest, or_filename_previous)
         or_previous_data_df = pd.read_csv(or_filename_previous)
-        # previous_data_df.info()
 
         # Merge the previous and current datasets using the unique item number field as index
         # Add a suffix to any rows taken from the previous dataset and include a field to indicate which datasets
@@ -190,7 +199,7 @@ def output_results(or_latest_data_df, or_item_name, or_output_file_list):
                                                                                                     'itemWebUrl'],
                                     how='outer', suffixes=('', '_prev'))
 
-        # Remove rows from the previous dataset
+        # Remove columns from the previous dataset
         or_comparison_df.drop(or_comparison_df.filter(regex='_prev$').columns, axis=1, inplace=True)
 
         # Use the indicator field and rename the values to show new, ongoing and complete rows
@@ -210,10 +219,15 @@ def output_results(or_latest_data_df, or_item_name, or_output_file_list):
         or_completed_df.to_csv(or_filename_completed, index=False)
         or_completed_df.to_csv(or_output_file_list[1], index=False, mode='a', header=False)
 
-        # Get only ongoing and new records and write a separate file for those
-        or_ongoing_df = or_comparison_df.loc[or_comparison_df['Status'] != 'complete']
+        # Get only ongoing records and write a separate file for those
+        or_ongoing_df = or_comparison_df.loc[or_comparison_df['Status'] == 'ongoing']
         or_ongoing_df.to_csv(or_filename_ongoing, index=False)
         or_ongoing_df.to_csv(or_output_file_list[2], index=False, mode='a', header=False)
+
+        # Get only new records and write a separate file for those
+        or_new_df = or_comparison_df.loc[or_comparison_df['Status'] == 'new']
+        or_new_df.to_csv(or_filename_new, index=False)
+        or_new_df.to_csv(or_output_file_list[2], index=False, mode='a', header=False)
 
     # Store the current dataset for use next time
     or_latest_data_df.to_csv(or_filename_latest, index=False)
