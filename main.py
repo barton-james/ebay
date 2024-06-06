@@ -12,6 +12,10 @@ def get_auth_token():
     gat_auth_config.read('private_auth.ini')
     gat_authorization = base64.b64encode(bytes(gat_auth_config['keys']['client_id'] + ":" +
                                                gat_auth_config['keys']['client_secret'], "ISO-8859-1")).decode("ascii")
+    # Read the authorisation configuration
+    gat_auth_config = configparser.ConfigParser()
+    gat_auth_config.read('auth_config.ini')
+
     # Set up the query header and body
     gat_auth_headers = {
         "Content-Type": gat_auth_config['params']['content_type'],
@@ -241,7 +245,7 @@ if __name__ == '__main__':
     # Read the configuration
     config = configparser.RawConfigParser(allow_no_value=True)
     config.optionxform = lambda option: option
-    config.read('config.ini')
+    config.read('query_config.ini')
 
     # Get the auth token to use for data retrieval
     token = get_auth_token()
