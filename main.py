@@ -227,7 +227,7 @@ def output_results(or_latest_data_df, or_item_name, or_output_file_list):
         # Get only new records and write a separate file for those
         or_new_df = or_comparison_df.loc[or_comparison_df['Status'] == 'new']
         or_new_df.to_csv(or_filename_new, index=False)
-        or_new_df.to_csv(or_output_file_list[2], index=False, mode='a', header=False)
+        or_new_df.to_csv(or_output_file_list[3], index=False, mode='a', header=False)
 
     # Store the current dataset for use next time
     or_latest_data_df.to_csv(or_filename_latest, index=False)
